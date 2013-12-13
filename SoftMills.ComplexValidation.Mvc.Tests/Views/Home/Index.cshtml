@@ -1,0 +1,33 @@
+﻿@model SoftMills.ComplexValidation.Mvc.Tests.Models.HomeIndexModel
+<!doctype html5>
+<html>
+    <head>
+        <title>Test Page for AnthonyMills.ComplexValidation</title>
+    </head>
+    <body>
+        <form method="POST">
+            @Html.EditorForModel()
+            @Html.EditorFor(m => m.Obj)
+            @Html.EditorFor(m => m.Obj.Sub)
+            @Html.EditorFor(m => m.SantaClaus)
+            @Html.EditorFor(m => m.PrimeMinister)
+            @Html.EditorFor(m => m.President)
+
+            @Html.TextBoxFor(m => m.Input)
+            @Html.ValidationMessageFor(m => m.Input)
+
+            <div>
+                @Html.TextBoxFor(m => m.RangeMin) &lt;= @Html.TextBoxFor(m => m.RangeCurrent) &lt;= @Html.TextBoxFor(m => m.RangeMax) <br/>
+                @Html.ValidationMessageFor(m => m.RangeMin)
+                @Html.ValidationMessageFor(m => m.RangeCurrent)
+                @Html.ValidationMessageFor(m => m.RangeMax)
+            </div>
+            <button type="submit">Submit</button>
+            @Html.AntiForgeryToken()
+        </form>
+        <script type="text/javascript" src="~/scripts/jquery-2.0.0.js"></script>
+        <script type="text/javascript" src="~/scripts/jquery.validate.js"></script>
+        <script type="text/javascript" src="~/scripts/jquery.validate.unobtrusive.js"></script>
+        <script type="text/javascript" src="~/scripts/jquery.validate.complex.js"></script>
+    </body>
+</html>
