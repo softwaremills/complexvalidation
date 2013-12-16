@@ -1,4 +1,6 @@
-﻿/*                                                   ______
+/*! SoftMills.ComplexValidation v0.1.1 | (c) 2013 Anthony Mills | MIT license */
+
+/*                                                   ______
 |                                       ___.--------'------`---------.____
 |                                 _.---'----------------------------------`---.__
 |                               .'___=]============================================
@@ -83,6 +85,7 @@ interface JqvcValidationParams {
 				return substitutions[i].use;
 
 		switch (array[0]) {
+			// Async calls
 			case "remote":
 			case "delay":
 				var syncCall: any[] = [array], asyncCalls: any[][] = null;
@@ -95,6 +98,8 @@ interface JqvcValidationParams {
 					}
 				}
 				return <JqvcDeferredCalls> { isDeferred: true, calls: async || [syncCall] };
+
+			// Presence checks
 			case "all":
 			case "and":
 			case "present":
@@ -140,6 +145,8 @@ interface JqvcValidationParams {
 						return false;
 				}
 				return async || true;
+
+			// Utilities
 			case "if":
 				var async: JqvcDeferredCalls = null;
 				for (var i = 1, len = array.length - 2; i < len; i += 2) {
@@ -174,6 +181,14 @@ interface JqvcValidationParams {
 						counter++;
 				}
 				return async || counter;
+			case "contains":
+				var test = resolveToken(array[array.length < 3 ? 1 : 2], value, element, prefix, substitutions);
+				var haystack: any[] = array.length < 3 ? value : resolveToken(array[1], value, element, prefix, substitutions);
+				return haystack.some(t => t == test);
+			case "in":
+				var test = array.length < 3 ? value : resolveToken(array[1], value, element, prefix, substitutions);
+				var haystack: any[] = array.slice(array.length < 3 ? 1 : 2).map(t => resolveToken(t, value, element, prefix, substitutions));
+				return haystack.some(t => t == test);
 			case "regex":
 				var test = array.length < 3 ? value : resolveToken(array[1], value, element, prefix, substitutions);
 				var pattern = resolveToken(array[array.length < 3 ? 1 : 2], value, element, prefix, substitutions);
@@ -185,7 +200,7 @@ interface JqvcValidationParams {
 				return getDeferred(token) || makeString(token);
 			case "len":
 				var token = resolveToken(array[1], value, element, prefix, substitutions);
-				return getDeferred(token) || (makeString(token) || "").length;
+				return getDeferred(token) || $.isArray(token) ? token.length : (makeString(token) || "").length;
 			case "value":
 				var token = resolveToken(array[1], value, element, prefix, substitutions);
 				return getDeferred(token) || resolveString(makeString(token), value, element, prefix);
@@ -201,6 +216,8 @@ interface JqvcValidationParams {
 			case "with":
 				var prefixToken = resolveToken(array[1], value, element, prefix, substitutions);
 				return getDeferred(prefixToken) || resolveToken(array[2], value, element, makeString(prefixToken) + ".", substitutions);
+
+			// Equivalence
 			case "eq":
 				var first = array.length < 3 ? value : resolveToken(array[1], value, element, prefix, substitutions);
 				if (first == null) return true;
@@ -237,15 +254,19 @@ interface JqvcValidationParams {
 				second = resolveToken(array[array.length < 3 ? 1 : 2], value, element, prefix, substitutions);
 				if (second == null) return true;
 				return getDeferred(first, second) || first >= second;
+
+			// Error handling
 			default:
 				throw new Error("Unknown function '" + array[0] + "' in function call '" + JSON.stringify(array) + "'.");
 		}
 	};
 
 	var resolveDataType = function (value) {
-		if (value === true || value === "true") {
+		if (typeof value !== "string") {
+			return value;
+		} else if (value === true || value === "true" || value === "True") {
 			return true;
-		} else if (value === false || value === "false") {
+		} else if (value === false || value === "false" || value === "False") {
 			return false;
 		} else if ((value - 0) == value && value.length > 0) {
 			return parseFloat(value);
@@ -263,12 +284,13 @@ interface JqvcValidationParams {
 		var name = element.name.substr(0, pos) + prefix + str;
 		var elements = document.getElementsByName(name);
 		if (elements.length === 0) throw new Error("Cannot resolve referenced element named '" + name + "'.");
-		if (elements.length === 1) return resolveDataType($(elements[0]).val());
 		for (i = 0, len = elements.length; i < len; i++) {
 			var el = <HTMLInputElement> elements[i];
-			if (el.checked) return resolveDataType(el.value);
+			if (el.type === "checkbox") return el.checked;
+			else if (el.type === "radio") { if (el.checked) return resolveDataType(el.value); }
+			else return $(el).val();
 		}
-		return false;
+		return null;
 	};
 
 	var resolveToken = function (token: any, value: any, element: HTMLInputElement, prefix: string, substitutions: JqvcSubstitution[]) {
@@ -278,7 +300,7 @@ interface JqvcValidationParams {
 	};
 
 	var isPresent = function (value: any) {
-		return typeof value === "array" ? !!value.length : !!value && value !== "false" || value === 0;
+		return typeof value === "array" ? !!value.length : !!value ? value !== "false" && value !== "False" : value === 0;
 	};
 
 	var makeString = function (obj: any) {
@@ -295,8 +317,8 @@ interface JqvcValidationParams {
 				return $.ajax({
 					url: array[1]
 				}).done(function (result) {
-					callback(resolveDataType(result));
-				});
+						callback(resolveDataType(result));
+					});
 			case "delay":
 				var id = window.setTimeout(function () {
 					callback(array[2]);
@@ -371,15 +393,19 @@ interface JqvcValidationParams {
 		};
 	};
 
+	var adapterMethod = function (validatorName: string) {
+		return function (options) {
+			if (options.message) {
+				options.messages[validatorName] = options.message;
+			}
+			options.rules[validatorName] = <JqvcValidationParams> { rule: JSON.parse(options.params.rule), abortable: [] };
+		}
+	};
+
 	var init = function () {
-		for (var i = 0, len = validatorNamesToRegister.length, validatorName: string; i < len; i++) {
-			validatorName = validatorNamesToRegister[i];
-			$.validator.unobtrusive.adapters.add(validatorName, ["rule"], function (options) {
-				if (options.message) {
-					options.messages[validatorName] = options.message;
-				}
-				options.rules[validatorName] = <JqvcValidationParams> { rule: JSON.parse(options.params.rule), abortable: [] };
-			});
+		for (var i = 0, len = validatorNamesToRegister.length; i < len; i++) {
+			var validatorName = validatorNamesToRegister[i];
+			$.validator.unobtrusive.adapters.add(validatorName, ["rule"], adapterMethod(validatorName));
 			$.validator.addMethod(validatorName, validatorMethod(validatorName));
 		}
 	};

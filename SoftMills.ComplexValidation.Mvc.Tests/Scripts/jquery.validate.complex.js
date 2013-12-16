@@ -1,4 +1,10 @@
-﻿!(function ($) {
+/*! SoftMills.ComplexValidation v0.1.1 | (c) 2013 Anthony Mills | MIT license */
+
+
+
+
+
+!function ($) {
     // Add subsequent elements in the chain if you need more validators
     var validatorNamesToRegister = ["v", "va", "vb", "vc", "vd"];
 
@@ -41,6 +47,7 @@
                     }
                 }
                 return { isDeferred: true, calls: async || [syncCall] };
+
             case "all":
             case "and":
             case "present":
@@ -90,6 +97,7 @@
                         return false;
                 }
                 return async || true;
+
             case "if":
                 var async = null;
                 for (var i = 1, len = array.length - 2; i < len; i += 2) {
@@ -124,6 +132,20 @@
                         counter++;
                 }
                 return async || counter;
+            case "contains":
+                var test = resolveToken(array[array.length < 3 ? 1 : 2], value, element, prefix, substitutions);
+                var haystack = array.length < 3 ? value : resolveToken(array[1], value, element, prefix, substitutions);
+                return haystack.some(function (t) {
+                    return t == test;
+                });
+            case "in":
+                var test = array.length < 3 ? value : resolveToken(array[1], value, element, prefix, substitutions);
+                var haystack = array.slice(array.length < 3 ? 1 : 2).map(function (t) {
+                    return resolveToken(t, value, element, prefix, substitutions);
+                });
+                return haystack.some(function (t) {
+                    return t == test;
+                });
             case "regex":
                 var test = array.length < 3 ? value : resolveToken(array[1], value, element, prefix, substitutions);
                 var pattern = resolveToken(array[array.length < 3 ? 1 : 2], value, element, prefix, substitutions);
@@ -135,7 +157,7 @@
                 return getDeferred(token) || makeString(token);
             case "len":
                 var token = resolveToken(array[1], value, element, prefix, substitutions);
-                return getDeferred(token) || (makeString(token) || "").length;
+                return getDeferred(token) || $.isArray(token) ? token.length : (makeString(token) || "").length;
             case "value":
                 var token = resolveToken(array[1], value, element, prefix, substitutions);
                 return getDeferred(token) || resolveString(makeString(token), value, element, prefix);
@@ -151,6 +173,7 @@
             case "with":
                 var prefixToken = resolveToken(array[1], value, element, prefix, substitutions);
                 return getDeferred(prefixToken) || resolveToken(array[2], value, element, makeString(prefixToken) + ".", substitutions);
+
             case "eq":
                 var first = array.length < 3 ? value : resolveToken(array[1], value, element, prefix, substitutions);
                 if (first == null)
@@ -199,15 +222,18 @@
                 if (second == null)
                     return true;
                 return getDeferred(first, second) || first >= second;
+
             default:
                 throw new Error("Unknown function '" + array[0] + "' in function call '" + JSON.stringify(array) + "'.");
         }
     };
 
     var resolveDataType = function (value) {
-        if (value === true || value === "true") {
+        if (typeof value !== "string") {
+            return value;
+        } else if (value === true || value === "true" || value === "True") {
             return true;
-        } else if (value === false || value === "false") {
+        } else if (value === false || value === "false" || value === "False") {
             return false;
         } else if ((value - 0) == value && value.length > 0) {
             return parseFloat(value);
@@ -228,14 +254,17 @@
         var elements = document.getElementsByName(name);
         if (elements.length === 0)
             throw new Error("Cannot resolve referenced element named '" + name + "'.");
-        if (elements.length === 1)
-            return resolveDataType($(elements[0]).val());
         for (i = 0, len = elements.length; i < len; i++) {
             var el = elements[i];
-            if (el.checked)
-                return resolveDataType(el.value);
+            if (el.type === "checkbox")
+                return el.checked;
+            else if (el.type === "radio") {
+                if (el.checked)
+                    return resolveDataType(el.value);
+            } else
+                return $(el).val();
         }
-        return false;
+        return null;
     };
 
     var resolveToken = function (token, value, element, prefix, substitutions) {
@@ -247,7 +276,7 @@
     };
 
     var isPresent = function (value) {
-        return typeof value === "array" ? !!value.length : !!value && value !== "false" || value === 0;
+        return typeof value === "array" ? !!value.length : !!value ? value !== "false" && value !== "False" : value === 0;
     };
 
     var makeString = function (obj) {
@@ -340,18 +369,23 @@
         };
     };
 
+    var adapterMethod = function (validatorName) {
+        return function (options) {
+            if (options.message) {
+                options.messages[validatorName] = options.message;
+            }
+            options.rules[validatorName] = { rule: JSON.parse(options.params.rule), abortable: [] };
+        };
+    };
+
     var init = function () {
-        for (var i = 0, len = validatorNamesToRegister.length, validatorName; i < len; i++) {
-            validatorName = validatorNamesToRegister[i];
-            $.validator.unobtrusive.adapters.add(validatorName, ["rule"], function (options) {
-                if (options.message) {
-                    options.messages[validatorName] = options.message;
-                }
-                options.rules[validatorName] = { rule: JSON.parse(options.params.rule), abortable: [] };
-            });
+        for (var i = 0, len = validatorNamesToRegister.length; i < len; i++) {
+            var validatorName = validatorNamesToRegister[i];
+            $.validator.unobtrusive.adapters.add(validatorName, ["rule"], adapterMethod(validatorName));
             $.validator.addMethod(validatorName, validatorMethod(validatorName));
         }
     };
 
     init();
-})(jQuery);
+}(jQuery);
+//# sourceMappingURL=jquery.validate.complex.js.map

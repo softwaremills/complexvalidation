@@ -26,6 +26,7 @@ namespace SoftMills.ComplexValidation.Tests
 				Two = 2,
 				Empty = "",
 				Ex = "x",
+				List = new[] {1,2,3},
 				Null = (string)null,
 				Obj = new
 					{
@@ -173,6 +174,23 @@ namespace SoftMills.ComplexValidation.Tests
 			Valid(2, "['eq',['count','One','Two','Empty','Null']]");
 			Valid(0, "['eq',['coalesce','Empty','Null','Zero','One','Two']]");
 			Valid(false, "['eq',['and',['not',false],['not',true],true]]");
+		}
+
+		[TestMethod]
+		public void Lists() {
+			Valid(2, "['in','List']");
+			Valid(2, "['in',2]");
+			Valid(5, "['in','','List',5]");
+			Invalid(6, "['in','','List',5]");
+			Valid(new[] { 1, 2 }, "['contains','One']");
+			Valid(new[] { 1, 2 }, "['or',['contains',3],['contains','One']]");
+			Valid(new[] { 1, 2 }, "['or',['contains',2],['contains','Zero']]");
+			Invalid(new[] { 1, 3 }, "['or',['contains',2],['contains','Zero']]");
+			Valid(null, "['contains','List',2]");
+			Valid(null, "['contains','List','Two',2,2]");
+			Invalid(null, "['contains','List','Two',2,4]");
+			Valid(null, "['contains','List','Two']");
+			Valid(3, "['eq',['len','List']]");
 		}
 
 		private static void Invalid(object value, string rule)

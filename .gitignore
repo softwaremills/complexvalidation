@@ -4,6 +4,7 @@
 # Stuff specific to this project
 packages/
 NugetPackage/
+*.js.map
 
 # User-specific files
 *.suo

@@ -8,9 +8,9 @@ When I finished there, I thought back on my experience. One day I had an idea, a
 
 ## Project Quality Summary
 
-This code is of alpha quality, basically. I'm pretty confident about all of the functions except `remote` (which doesn't have a comprehensive test suite yet), and it should work great for text boxes, selects, and check boxes. I'm pretty sure it doesn't work well for radio buttons, and I don't have a good story currently for handling multiselects.
+This code is of alpha quality, basically. I'm pretty confident about all of the functions except `remote` (which doesn't have a comprehensive test suite yet), and it should work great for text boxes, selects, and check boxes. I have code in for radio buttons and multiselects, but it's not well-tested.
 
-There is a NuGet package which lists the version as 0.1. It does so as a warning. The package is primarily a convenience for me, the author, because I'm using this in a couple commercial projects of mine.
+There is a NuGet package which lists the version as 0.1. It does so as a warning. The package is primarily a convenience for me, the author, because I'm using this in a couple commercial projects of mine. But I'm working on getting a comprehensive series of test suites in.
 
 ## Introduction
 
@@ -55,9 +55,9 @@ So yeah. This is a really simple Lisp dedicated to doing validations. It's got l
 
 ## The meaning of "present"
 
-A lot of functions in CV deal with the concept of "presence". For instance, When you have an expression like `[ValidIf("'Name'")]`, what does that mean? Well, basically a value is present if it is true (if it's a boolean) or has characters (a string). Numbers are always truthy, and dates are always truthy.
+A lot of functions in CV deal with the concept of "presence". For instance, When you have an expression like `[ValidIf("'Name'")]`, what does that mean? Well, basically a value is present if it is true (if it's a boolean) or has characters (a string). Numbers are always truthy, and dates are always truthy. Arrays are truthy if they have more than one item.
 
-So `[ValidIf("'Name'")]` means that the current element is valid if the `Name` field is present. If `Name` is a text field, then the current element is valid if it isn't empty. If `Name` is a checkbox, then the current element is valid if `Name` is checked.
+So `[ValidIf("'Name'")]` means that the current element is valid if the `Name` field is present. If `Name` is a text field, then the current element is valid if it isn't empty. If `Name` is a checkbox, then the current element is valid if `Name` is checked. And if `Name` is a multiselect, it's valid if at least one item is selected.
 
 ## Predefined Functions
 
@@ -126,15 +126,29 @@ Returns the total number of values that are present. Say, for instance, if you w
 
 Comparisons are not all that interesting, really. Behavior is undefined if the values are different types.
 
+### Arrays
+
+Multiselects evaluate to an array of values. These functions allow you to test them.
+
+    ['in',arrayOrScalar]             // tests to see whether the current value is one of the referenced values
+    ['in',value,arrayOrScalar1,...]  // tests to see whether the given value is one of the referenced arrays or scalars
+
+Basically, sees if the value is one of the given list(s) of values. For example, on a zip code you might put something like `['or','',['not',['in','UsaId','CountryIds']]]` ... saying that the zip code field is valid either if it's filled in or the US isn't one of the countries selected in the `CountryIds` multiselect field.
+
+    ['contains',value]
+    ['contains',arrayOrScalar1,...,value]
+
+This is pretty much the `in` function with parameters in reverse order, but the single-parameter version is different. You might use this on a multiselect itself; for instance, `['contains','RequiredId']` if there was a certain selection that was required to remain selected in a multiselect.
+
 ### Strings
 
 	['concat',value1,...]
 
 Takes the given values, converts them to strings, and concatenates the result.
 
-    ['len',value]
+    ['len',stringOrArray]
 
-Converts the given value to a string and returns the resulting string length.
+If given an array, returns the number of elements in the array. Otherwise, converts the given value to a string and returns the resulting string length.
 
 	['regex',pattern]       // returns whether the current element matches the regular expression
     ['regex',pattern,value] // returns whether the value matches the regular expression
@@ -239,53 +253,35 @@ Now if we want to define default error messages for these packaged validations, 
 
 Having to specify a separate error message for each validation is a pain. Often, you can come up with a default error message with some placeholders, and that can service most of the places that you use
 
-In order to register a default error message for each of the reusable validations you've dreamed up above, you need to register them with the `DataAnnotationsModelValidatorProvider`. Fortunately, this can be done fairly painlessly in your `Global.asax.cs` file.
+In order to register a default error message for each of the reusable validations you've dreamed up above, you need to register them with the `DataAnnotationsModelValidatorProvider`. Fortunately, this can be done fairly painlessly in your `Global.asax.cs` file using the convenient helper method included.
 
     namespace Your.Application.Namespace {
         protected void Application_Start() {
             // initialize other things
 
-            RegisterClientValidatableAttribute<RequiredIfAttribute>();
-            RegisterClientValidatableAttribute<RequiredIfAbsentAttribute>();
+            ValidIfAttribute.DefaultErrorMessageResourceType = typeof(Resources);
+            ValidIfAttribute.DefaultErrorMessageResourceNamePrefix = "Validation_";
+
+            // Sets [RequiredIf] to default to Resources.Validation_RequiredIf
+            ValidIfAttribute.RegisterAdapter<RequiredIfAttribute>();
+
+            // Sets [RequiredIfAbsent] to default to Resources.Validation_RequiredIfAbsent
+            ValidIfAttribute.RegisterAdapter<RequiredIfAbsentAttribute>();
+
+            // Sets [YourValidation] to default to Resources.Validation_YourValidation
+            ValidIfAttribute.RegisterAdapter<YourValidationAttribute>();
+
             // ...
-        }
-
-        private static void RegisterClientValidatableAttribute<T>()
-            where T : ValidationAttribute
-        {
-            DataAnnotationsModelValidatorProvider.RegisterAdapter(
-                typeof(T),
-                typeof(ClientValidatableAttributeAdapter<T>));
-        }
-
-        private class ClientValidatableAttributeAdapter<T> : DataAnnotationsModelValidator<T>
-            where T : ValidationAttribute
-        {
-            public ClientValidatableAttributeAdapter(ModelMetadata metadata, ControllerContext context, T attribute)
-                : base(metadata, context, attribute)
-            {
-                if (string.IsNullOrEmpty(attribute.ErrorMessage) &&
-                    string.IsNullOrEmpty(attribute.ErrorMessageResourceName) &&
-                    attribute.ErrorMessageResourceType == null)
-                {
-                    attribute.ErrorMessageResourceType = typeof(Resources);
-                    var typeName = attribute.GetType().Name;
-                    attribute.ErrorMessageResourceName = "Validation_" +
-                        (typeName.EndsWith("Attribute") ? typeName.Substring(0, typeName.Length - 9) : typeName);
-                }
-            }
         }
     }
 
-Now, if you define Validation_RequiredIf as a string in your resource file, that will be used as the default error message string for `RequiredIfAttribute`.
+Now, if you define `Validation_RequiredIf` as a string in your resource file, that will be used as the default error message string for `RequiredIfAttribute`.
 
 ## Limitations
 
 Since CV uses the `dynamic` keyword for server comparisons, it requires at least .NET 4.0. A truly clever programmer could probably fix this.
 
 Originally CV used Microsoft's built-in JSON services. But since Json.Net is faster and officially included anyway now, I've rewritten CV to use Json.Net.
-
-While CV allows you to do complex asynchronous validations like `['remote',['remote','UrlUrl'],['remote','ParamUrl']]` ... the underlying jQuery Validate library that powers ASP.NET MVC validations was not built for this. This may be rectified in the future, but for now, just don't do that. One remote call per property is probably fine.
 
 I should probably reiterate that if `new Date(value)` does not properly parse the date format you are using for your text fields, you should probably change that part of `resolveDataType()`.
 
