@@ -156,7 +156,7 @@
                 var token = resolveToken(array[1], value, element, prefix, substitutions);
                 return getDeferred(token) || makeString(token);
             case "len":
-                var token = resolveToken(array[1], value, element, prefix, substitutions);
+                var token = array.length < 2 ? value : resolveToken(array[1], value, element, prefix, substitutions);
                 return getDeferred(token) || $.isArray(token) ? token.length : (makeString(token) || "").length;
             case "value":
                 var token = resolveToken(array[1], value, element, prefix, substitutions);
@@ -230,14 +230,16 @@
 
     var resolveDataType = function (value) {
         if (typeof value !== "string") {
-            return value;
-        } else if (value === true || value === "true" || value === "True") {
+            return $.isArray(value) ? value.map(function (v) {
+                return resolveDataType(v);
+            }) : value;
+        } else if (value === "true" || value === "True") {
             return true;
-        } else if (value === false || value === "false" || value === "False") {
+        } else if (value === "false" || value === "False") {
             return false;
         } else if ((value - 0) == value && value.length > 0) {
             return parseFloat(value);
-        } else if (typeof value == "string") {
+        } else {
             var dateValue = new Date(value);
             if (!isNaN(dateValue))
                 return dateValue;
@@ -262,7 +264,7 @@
                 if (el.checked)
                     return resolveDataType(el.value);
             } else
-                return $(el).val();
+                return resolveDataType($(el).val());
         }
         return null;
     };
@@ -276,7 +278,7 @@
     };
 
     var isPresent = function (value) {
-        return typeof value === "array" ? !!value.length : !!value ? value !== "false" && value !== "False" : value === 0;
+        return $.isArray(value) ? !!value.length : !!value ? value !== "false" && value !== "False" : value === 0;
     };
 
     var makeString = function (obj) {
@@ -287,11 +289,15 @@
         return value && value.isDeferred;
     };
 
-    var resolveArrayAsync = function (array, callback) {
+    var resolveArrayAsync = function (array, value, callback) {
         switch (array[0][0]) {
             case "remote":
                 return $.ajax({
-                    url: array[1]
+                    type: "POST",
+                    url: array[1],
+                    contentType: "application/json",
+                    dataType: "json",
+                    data: JSON.stringify({ args: array.length < 3 ? [value] : array.slice(2) })
                 }).done(function (result) {
                     callback(resolveDataType(result));
                 });
@@ -312,7 +318,7 @@
     var launchAsync = function (rule, call, value, element, substitutions, abortable, callback) {
         var substitution = { insteadOf: call[0], use: pending };
         substitutions.push(substitution);
-        var abortableCall = resolveArrayAsync(call, function (asyncResult) {
+        var abortableCall = resolveArrayAsync(call, value, function (asyncResult) {
             for (var i = abortable.length - 1; i >= 0; i--)
                 if (abortable[i] === abortableCall)
                     abortable.splice(i, 1);

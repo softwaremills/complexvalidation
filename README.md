@@ -8,9 +8,9 @@ When I finished there, I thought back on my experience. One day I had an idea, a
 
 ## Project Quality Summary
 
-This code is of alpha quality, basically. I'm pretty confident about all of the functions except `remote` (which doesn't have a comprehensive test suite yet), and it should work great for text boxes, selects, and check boxes. I have code in for radio buttons and multiselects, but it's not well-tested.
+This code is of alpha quality, basically. It should work great for text boxes, selects, and check boxes. I have code in for radio buttons and multiselects, but it's not well-tested. And I have tested code for `remote`, but it's possible that it will change in future. Some things, like `remote` with arrays (used with multiselects) and dates, are a little fiddly. I'm doing some thinking about whether the treatment is optimal.
 
-There is a NuGet package which lists the version as 0.1. It does so as a warning. The package is primarily a convenience for me, the author, because I'm using this in a couple commercial projects of mine. But I'm working on getting a comprehensive series of test suites in.
+There is a NuGet package which lists the version as 0.2. It does so as a warning. The package is primarily a convenience for me, the author, because I'm using this in a couple commercial projects of mine. But I'm working on getting a comprehensive series of test suites in.
 
 ## Introduction
 
@@ -67,7 +67,7 @@ CV defines a number of functions that should handle most of your validation need
 
     ['remote',url,params...]
 
-Does a remote call the the URL with the given parameters. On the server side, you register a handler to be called when a given URL is referenced.
+Does a remote call the the URL with the given parameters. On the server side, you register a handler to be called when a given URL is referenced. I have a section below on how to write `remote` calls properly.
 
 ### Tests for Presence
 
@@ -277,20 +277,79 @@ In order to register a default error message for each of the reusable validation
 
 Now, if you define `Validation_RequiredIf` as a string in your resource file, that will be used as the default error message string for `RequiredIfAttribute`.
 
+## Writing Remote Validations
+
+Writing a remote validation is tricky. Here's how to do it.
+
+### Registering Remote Validations
+
+In order to register a remote validation, you need a pair of functions. The first function receives the request and passes it along to the check function. This is called by the client-side code.
+
+    public JsonResult ToppingCountCheck(object[] args) {
+        return Json(ToppingCountCheckFunc(args));
+    }
+
+The second one implements the actual check, and is called directly by the server-side code. 
+
+    public static object ToppingCountCheckFunc(object[] args) {
+        return !args[0].Equals(1);
+    }
+
+Note that this doesn't return `bool` because `remote` calls can return anything, not just boolean values.
+
+Finally, you need to register the validators during the first request to your application, because otherwise you won't be able to construct the URLs to register with the attribute. The `AddRemoteValidator` call takes the URL of the first function and the reference to the second function. 
+
+    protected void Application_BeginRequest(object source, EventArgs e) {
+        ValidIfAttribute.AddRemoteValidatorsOnce(((HttpApplication) source).Context, url => {
+            ValidIfAttribute.AddRemoteValidator(url.Action("DeliveryDateCheck"), HomeController.DeliveryDateCheckFunc);
+            ValidIfAttribute.AddRemoteValidator(url.Action("ToppingCountCheck"), HomeController.ToppingCountCheckFunc);
+            ValidIfAttribute.AddRemoteValidator(url.Action("ToppingsCheck"), HomeController.ToppingsCheckFunc);
+        });
+    }
+
+Note that in order to implement the call, JSON is posted in the body of the check request. For complicated calls, the MVC JSON value provider may not be sufficient. In that case, you might need to do something like this:
+
+    public JsonResult ToppingsCheck() {
+        Request.InputStream.Seek(0, SeekOrigin.Begin);
+        var args = JObject.Parse(new StreamReader(Request.InputStream).ReadToEnd())["args"] as JArray;
+        return Json(args[0].All(t => t.Value<int>() != 1));
+    }
+
+    public static object ToppingsCheckFunc(object[] args) {
+        var list = (object[]) args[0];
+        return list.All(obj => !obj.Equals(1));
+    }
+
+Note that in this case the MVC action does not reference the function used for server-side validation. Instead, it rewinds the input stream and uses `JObject` from JSON.Net to parse the input object, which has an `args` array. It then uses JSON.Net's Linq to JSON feature to do the check. The server-side validator does the check a different way.
+
+Note also that if you are passing dates to a remote validator, the dates will be serialized as strings and must be treated as such:
+
+    public JsonResult DeliveryDateCheck(object[] args) {
+        return Json(DeliveryDateCheckFunc(new object[] {DateTime.Parse((string) args[0])}));
+    }
+
+    public static object DeliveryDateCheckFunc(object[] args) {
+        return !args[0].Equals(DateTime.Today.AddDays(1));
+    }
+
+At this point the date serialization format is left up to the browser. In the future, this will probably be serialized in a standard format, but for now, no guarantees.
+
+For examples of how to write remote validations, check out the MVC test project here, which has a special page of remote validation tests.
+
 ## Limitations
 
 Since CV uses the `dynamic` keyword for server comparisons, it requires at least .NET 4.0. A truly clever programmer could probably fix this.
 
 Originally CV used Microsoft's built-in JSON services. But since Json.Net is faster and officially included anyway now, I've rewritten CV to use Json.Net.
 
-I should probably reiterate that if `new Date(value)` does not properly parse the date format you are using for your text fields, you should probably change that part of `resolveDataType()`.
+I should probably reiterate that if `new Date(value)` does not properly parse the date format you are using for your text fields, you should probably change that part of `resolveDataType()` in the JavaScript.
 
 ## License
 
-This code is placed under the MIT license. If you use it in your application, please email me a thank-you note.
+This code is placed under the MIT license. If you use it in your application, please email me a thank-you note at mrmills@gmail.com. Comments, suggestions, etc., all are welcome.
 
 ## Acknowledgments
 
-Many thanks to Nick Riggs for Foolproof Validation, which was the inspiration for some of the code in here. If Foolproof had allowed me to put a `GreaterThan` and a `LessThan` on the same element (not possible because Foolproof uses the same 'is' client-side validation identifier for all its attributes), I might never have written this.
+Many thanks to Nick Riggs for Foolproof Validation, which was the inspiration for some of the code in here. If Foolproof had allowed me to put a `GreaterThan` and a `LessThan` on the same element (not possible because Foolproof uses the same `is` client-side validation identifier for all its attributes), I might never have written this.
 
 Many thanks also to the TypeScript team, and Anders Hejlsberg in particular. The JavaScript portion of this was written in TypeScript, and Anders has produced many projects that I have loved, from Delphi to C# to TypeScript. Many thanks!

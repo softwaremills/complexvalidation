@@ -199,7 +199,7 @@ interface JqvcValidationParams {
 				var token = resolveToken(array[1], value, element, prefix, substitutions);
 				return getDeferred(token) || makeString(token);
 			case "len":
-				var token = resolveToken(array[1], value, element, prefix, substitutions);
+				var token = array.length < 2 ? value : resolveToken(array[1], value, element, prefix, substitutions);
 				return getDeferred(token) || $.isArray(token) ? token.length : (makeString(token) || "").length;
 			case "value":
 				var token = resolveToken(array[1], value, element, prefix, substitutions);
@@ -263,14 +263,14 @@ interface JqvcValidationParams {
 
 	var resolveDataType = function (value) {
 		if (typeof value !== "string") {
-			return value;
-		} else if (value === true || value === "true" || value === "True") {
+			return $.isArray(value) ? value.map(v => resolveDataType(v)) : value;
+		} else if (value === "true" || value === "True") {
 			return true;
-		} else if (value === false || value === "false" || value === "False") {
+		} else if (value === "false" || value === "False") {
 			return false;
 		} else if ((value - 0) == value && value.length > 0) {
 			return parseFloat(value);
-		} else if (typeof value == "string") {
+		} else {
 			var dateValue = new Date(value);
 			if (!isNaN(<any> dateValue)) return dateValue;
 		}
@@ -288,7 +288,7 @@ interface JqvcValidationParams {
 			var el = <HTMLInputElement> elements[i];
 			if (el.type === "checkbox") return el.checked;
 			else if (el.type === "radio") { if (el.checked) return resolveDataType(el.value); }
-			else return $(el).val();
+			else return resolveDataType($(el).val());
 		}
 		return null;
 	};
@@ -300,7 +300,7 @@ interface JqvcValidationParams {
 	};
 
 	var isPresent = function (value: any) {
-		return typeof value === "array" ? !!value.length : !!value ? value !== "false" && value !== "False" : value === 0;
+		return $.isArray(value) ? !!value.length : !!value ? value !== "false" && value !== "False" : value === 0;
 	};
 
 	var makeString = function (obj: any) {
@@ -311,11 +311,15 @@ interface JqvcValidationParams {
 		return value && value.isDeferred;
 	};
 
-	var resolveArrayAsync = function (array: any[], callback: (any) => void): JqvcAbortableObject {
+	var resolveArrayAsync = function (array: any[], value: any, callback: (any) => void): JqvcAbortableObject {
 		switch (array[0][0]) {
 			case "remote":
 				return $.ajax({
-					url: array[1]
+					type: "POST",
+					url: array[1],
+					contentType: "application/json",
+					dataType: "json",
+					data: JSON.stringify({ args: array.length < 3 ? [value] : array.slice(2) })
 				}).done(function (result) {
 						callback(resolveDataType(result));
 					});
@@ -336,7 +340,7 @@ interface JqvcValidationParams {
 	var launchAsync = function (rule: any[], call: any[], value: any, element: HTMLInputElement, substitutions: JqvcSubstitution[], abortable: JqvcAbortableObject[], callback: (boolean) => void) {
 		var substitution: JqvcSubstitution = { insteadOf: call[0], use: pending };
 		substitutions.push(substitution);
-		var abortableCall = resolveArrayAsync(call, function (asyncResult) {
+		var abortableCall = resolveArrayAsync(call, value, function (asyncResult) {
 			for (var i = abortable.length - 1; i >= 0; i--)
 				if (abortable[i] === abortableCall)
 					abortable.splice(i, 1);

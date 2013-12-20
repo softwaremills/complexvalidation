@@ -1,11 +1,16 @@
-﻿@model SoftMills.ComplexValidation.Mvc.Tests.Models.HomeIndexModel
-<!doctype html5>
+﻿@using SoftMills.ComplexValidation.Mvc.Tests.Controllers
+@model SoftMills.ComplexValidation.Mvc.Tests.Models.HomeIndexModel
+<!DOCTYPE html>
 <html>
     <head>
-        <title>Test Page for AnthonyMills.ComplexValidation</title>
+        <title>Test Page for SoftMills.ComplexValidation - Simple Validations</title>
     </head>
     <body>
         <form method="POST">
+            <h1>Other Pages</h1>
+            <div><a href="@Url.HomeRemote()">Remote Validation Test</a></div>
+
+            <h1>Simple Tests</h1>
             @Html.EditorForModel()
             @Html.EditorFor(m => m.Obj)
             @Html.EditorFor(m => m.Obj.Sub)

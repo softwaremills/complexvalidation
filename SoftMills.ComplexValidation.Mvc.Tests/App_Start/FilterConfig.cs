@@ -1,6 +1,6 @@
 ﻿using System.Web.Mvc;
 
-namespace SoftMills.ComplexValidation.Mvc.Tests.App_Start
+namespace SoftMills.ComplexValidation.Mvc.Tests
 {
 	public class FilterConfig
 	{

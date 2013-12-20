@@ -27,51 +27,9 @@ using System.Web.Mvc;
 
 namespace SoftMills.ComplexValidation {
 
-	public class ValidIf2Attribute : ValidIfAttribute {
-		public ValidIf2Attribute(string rule, params string[] errorMessageFormatNames) : base(rule, errorMessageFormatNames) {} }
-
-	public class ValidIf3Attribute : ValidIfAttribute {
-		public ValidIf3Attribute(string rule, params string[] errorMessageFormatNames) : base(rule, errorMessageFormatNames) {} }
-
-	public class ValidIf4Attribute : ValidIfAttribute {
-		public ValidIf4Attribute(string rule, params string[] errorMessageFormatNames) : base(rule, errorMessageFormatNames) {} }
-
-	public class ValidIf5Attribute : ValidIfAttribute {
-		public ValidIf5Attribute(string rule, params string[] errorMessageFormatNames) : base(rule, errorMessageFormatNames) {} }
-
-	// Convenience attributes. Because it's generally a bit more readable to say [LessThan("Today")].
-	//public class RequiredAttribute : ValidIfAttribute { public RequiredAttribute() : base("''") {} }  // No point in redefining the classic RequiredAttribute.
-
-	public class RequiredIfAttribute : ValidIfAttribute {
-		public RequiredIfAttribute(string other) : base("['if','" + HttpUtility.JavaScriptStringEncode(other) + "','',true]", other) {} }
-
-	public class RequiredIfAbsentAttribute : ValidIfAttribute {
-		public RequiredIfAbsentAttribute(string other) : base("['or','" + HttpUtility.JavaScriptStringEncode(other) + "','']", other) {} }
-
-	public class EqualToAttribute : ValidIfAttribute {
-		public EqualToAttribute(string other) : base("['eq','" + HttpUtility.JavaScriptStringEncode(other) + "']", other) {}
-		public EqualToAttribute(int constant) : base("['eq'," + constant + "]", null) { ErrorMessageDisplayNames[0] = constant.ToString(); }
-		public EqualToAttribute(double constant) : base("['eq'," + constant + "]", null) { ErrorMessageDisplayNames[0] = constant.ToString(); } }
-
-	public class LessThanAttribute : ValidIfAttribute {
-		public LessThanAttribute(string other) : base("['lt','" + HttpUtility.JavaScriptStringEncode(other) + "']", other) {}
-		public LessThanAttribute(int constant) : base("['lt'," + constant + "]", null) { ErrorMessageDisplayNames[0] = constant.ToString(); }
-		public LessThanAttribute(double constant) : base("['lt'," + constant + "]", null) { ErrorMessageDisplayNames[0] = constant.ToString(); } }
-
-	public class LessThanOrEqualToAttribute : ValidIfAttribute {
-		public LessThanOrEqualToAttribute(string other) : base("['lte','" + HttpUtility.JavaScriptStringEncode(other) + "']", other) {}
-		public LessThanOrEqualToAttribute(int constant) : base("['lte'," + constant + "]", null) { ErrorMessageDisplayNames[0] = constant.ToString(); }
-		public LessThanOrEqualToAttribute(double constant) : base("['lte'," + constant + "]", null) { ErrorMessageDisplayNames[0] = constant.ToString(); } }
-
-	public class GreaterThanAttribute : ValidIfAttribute {
-		public GreaterThanAttribute(string other) : base("['gt','" + HttpUtility.JavaScriptStringEncode(other) + "']", other) {}
-		public GreaterThanAttribute(int constant) : base("['gt'," + constant + "]", null) { ErrorMessageDisplayNames[0] = constant.ToString(); }
-		public GreaterThanAttribute(double constant) : base("['gt'," + constant + "]", null) { ErrorMessageDisplayNames[0] = constant.ToString(); } }
-
-	public class GreaterThanOrEqualToAttribute : ValidIfAttribute {
-		public GreaterThanOrEqualToAttribute(string other) : base("['gte','" + HttpUtility.JavaScriptStringEncode(other) + "']", other) {}
-		public GreaterThanOrEqualToAttribute(int constant) : base("['gte'," + constant + "]", null) { ErrorMessageDisplayNames[0] = constant.ToString(); }
-		public GreaterThanOrEqualToAttribute(double constant) : base("['gte'," + constant + "]", null) { ErrorMessageDisplayNames[0] = constant.ToString(); } }
+	public class RemoteArgs {
+		public object[] args;
+	}
 
 	[AttributeUsage(AttributeTargets.Property, AllowMultiple = false)]  // AllowMultiple = false because of an MVC limitation. Thus, ValidIf2 etc.
 	public class ValidIfAttribute : ValidationAttribute, IClientValidatable {
@@ -82,13 +40,20 @@ namespace SoftMills.ComplexValidation {
 		private readonly string[] errorMessageFormatNames;     // Property names
 		protected readonly string[] ErrorMessageDisplayNames;  // Label names
 
-		private static IDictionary<string, Func<object[], bool>> remoteValidators;
+		private static IDictionary<string, Func<object[], object>> remoteValidators;
+		private static bool initializedAlready = false;
+		private static Object lockObject = new Object();
 
 		/// <summary>
 		/// One validation attribute to rule them all.
 		/// </summary>
-		/// <param name="rule">The rule specifying one facet of what is valid, in JSON format with single quotes. For example, "['gte','MinValue']".</param>
-		/// <param name="errorMessageFormatNames">Names of additional referenced properties; the first will be {1}, the second {2}, etc., in the error message string ({0} is always the current field name).</param>
+		/// <param name="rule">
+		/// The rule specifying one facet of what is valid, in JSON format with single quotes. For example, "['gte','MinValue']".
+		/// </param>
+		/// <param name="errorMessageFormatNames">
+		/// Names of additional referenced properties; the first will be {1}, the second {2}, etc., in the error message string ({0}
+		/// is always the current field name).
+		/// </param>
 		public ValidIfAttribute(string rule, params string[] errorMessageFormatNames) {
 			this.rule = rule;
 			this.errorMessageFormatNames = errorMessageFormatNames;
@@ -102,8 +67,22 @@ namespace SoftMills.ComplexValidation {
 		/// </summary>
 		/// <param name="url">The URL of the validator.</param>
 		/// <param name="validator">The validator function.</param>
-		public static void AddRemoteValidator(string url, Func<object[], bool> validator) {
-			(remoteValidators ?? (remoteValidators = new Dictionary<string, Func<object[], bool>>())).Add(url, validator);
+		public static void AddRemoteValidator(string url, Func<object[], object> validator) {
+			(remoteValidators ?? (remoteValidators = new Dictionary<string, Func<object[], object>>())).Add(url, validator);
+		}
+
+		/// <summary>
+		/// Helper function to allow initializing remote validators on the first request. Should call this from Application_BeginRequest.
+		/// </summary>
+		/// <param name="context">If called from Application_BeginRequest, this should be the Context property of the source, which is an HttpApplication.</param>
+		/// <param name="initializer">An initializer method, passed a UrlHelper. This should call AddRemoteValidator multiple times.</param>
+		public static void AddRemoteValidatorsOnce(HttpContext context, Action<UrlHelper> initializer) {
+			if (initializedAlready) return;
+			lock (lockObject) {
+				if (initializedAlready) return;
+				initializer(new UrlHelper(context.Request.RequestContext));
+				initializedAlready = true;
+			}
 		}
 
 		/// <summary>
@@ -118,8 +97,8 @@ namespace SoftMills.ComplexValidation {
 		}
 
 		/// <summary>
-		/// Evaluates the rule for the current object and judges the value valid if the rule evaluates to a "present" value
-		/// (e.g. true, any non-empty string, any number, any date). Protected to allow descendants to override if necessary.
+		/// Evaluates the rule for the current object and judges the value valid if the rule evaluates to a "present" value (e.g.
+		/// true, any non-empty string, any number, any date). Protected to allow descendants to override if necessary.
 		/// </summary>
 		/// <param name="value">The value to evaluate.</param>
 		/// <param name="validationContext">The context, which includes the value to evaluate.</param>
@@ -134,8 +113,8 @@ namespace SoftMills.ComplexValidation {
 		}
 
 		/// <summary>
-		/// Gets the client validation rules for the attribute. Automatically assigns the next client validation identifier
-		/// (e.g. "v", "va", "vb", etc.).
+		/// Gets the client validation rules for the attribute. Automatically assigns the next client validation identifier (e.g.
+		/// "v", "va", "vb", etc.).
 		/// </summary>
 		public virtual IEnumerable<ModelClientValidationRule> GetClientValidationRules(ModelMetadata metadata, ControllerContext context) {
 			for (var i = 0; i < errorMessageFormatNames.Length; i++) {
@@ -161,13 +140,17 @@ namespace SoftMills.ComplexValidation {
 			switch (token.Type) {
 				case JTokenType.Array:
 					return ResolveFunction((JArray) token, value, container);
+
 				case JTokenType.String:
 					return ResolveString(token.Value<string>(), value, container);
+
 				case JTokenType.Boolean:
 					return token.Value<bool>();
+
 				case JTokenType.Float:
 				case JTokenType.Integer:
 					return token.Value<double>();
+
 				default:
 					return null;
 			}
@@ -178,9 +161,9 @@ namespace SoftMills.ComplexValidation {
 			switch (func) {
 				case "remote": {
 						var url = Convert.ToString(ResolveToken(args[1], value, container));
-						var remoteArgs = args.Skip(2).Select(v => ResolveToken(v, value, container)).ToArray();
-						Func<object[], bool> validator;
-						return remoteValidators != null && remoteValidators.TryGetValue(url, out validator) && validator(remoteArgs);
+						var remoteArgs = args.Count < 3 ? new object[] { value } : args.Skip(2).Select(v => ResolveToken(v, value, container)).ToArray();
+						Func<object[], object> validator;
+						return remoteValidators != null && remoteValidators.TryGetValue(url, out validator) ? validator(remoteArgs) : null;
 					}
 
 				case "delay": {
@@ -272,8 +255,8 @@ namespace SoftMills.ComplexValidation {
 						return haystack.Any(val => ArrayContains(val, test));
 					}
 
-				// 'regex', regular expression - returns whether the value matches the regular expression
-				// 'regex', value, regular expression - returns whether the specified value matches the regular expression
+				// 'regex', regular expression - returns whether the value matches the regular expression 'regex', value, regular
+				// expression - returns whether the specified value matches the regular expression
 				case "regex": {
 						var test = Convert.ToString(args.Count < 3 ? value : ResolveToken(args[1], value, container));
 						var pattern = Convert.ToString(ResolveToken(args[args.Count < 3 ? 1 : 2], value, container));
@@ -285,9 +268,9 @@ namespace SoftMills.ComplexValidation {
 						return Convert.ToString(args[1]);
 					}
 
-				// returns the string length of the first parameter; null returns zero
+				// returns the array length or string length of the value or first parameter; null returns zero
 				case "len": {
-						var token = ResolveToken(args[1], value, container);
+						var token = args.Count < 2 ? value : ResolveToken(args[1], value, container);
 						if (token is IList) return ((IList) token).Count;
 						var str = Convert.ToString(token) ?? string.Empty;
 						return str.Length;
@@ -308,8 +291,7 @@ namespace SoftMills.ComplexValidation {
 						return ResolveToken(args[2], value, GetDependentPropertyValue(container, Convert.ToString(args[1])));
 					}
 
-				// 'eq', other - is the inspected value equal to other?
-				// 'eq', first, second - are the two given values equal?
+				// 'eq', other - is the inspected value equal to other? 'eq', first, second - are the two given values equal?
 				// succeeds if either is null
 				case "eq": {
 						dynamic first = args.Count < 3 ? value : ResolveToken(args[1], value, container);
@@ -321,9 +303,8 @@ namespace SoftMills.ComplexValidation {
 						return first == second;
 					}
 
-				// 'neq', other - is the inspected value not equal to other?
-				// 'neq', first, second - are the two given values not equal?
-				// succeeds if either is null
+				// 'neq', other - is the inspected value not equal to other? 'neq', first, second - are the two given values not
+				// equal? succeeds if either is null
 				case "neq": {
 						dynamic first = args.Count < 3 ? value : ResolveToken(args[1], value, container);
 						if (first == null)
@@ -334,9 +315,8 @@ namespace SoftMills.ComplexValidation {
 						return first != second;
 					}
 
-				// 'lt', other - is the inspected value less than other?
-				// 'lt', first, second - is first less than second?
-				// succeeds if either is null
+				// 'lt', other - is the inspected value less than other? 'lt', first, second - is first less than second? succeeds
+				// if either is null
 				case "lt": {
 						dynamic first = args.Count < 3 ? value : ResolveToken(args[1], value, container);
 						if (first == null)
@@ -347,9 +327,8 @@ namespace SoftMills.ComplexValidation {
 						return first < second;
 					}
 
-				// 'lte', other - is the inspected value less than or equal to other?
-				// 'lte', first, second - is first less than or equal to second?
-				// succeeds if either is null
+				// 'lte', other - is the inspected value less than or equal to other? 'lte', first, second - is first less than or
+				// equal to second? succeeds if either is null
 				case "lte": {
 						dynamic first = args.Count < 3 ? value : ResolveToken(args[1], value, container);
 						if (first == null)
@@ -360,8 +339,7 @@ namespace SoftMills.ComplexValidation {
 						return first <= second;
 					}
 
-				// 'gt', other - is the inspected value greater than other?
-				// 'gt', first, second - is first greater than second?
+				// 'gt', other - is the inspected value greater than other? 'gt', first, second - is first greater than second?
 				// succeeds if either is null
 				case "gt": {
 						dynamic first = args.Count < 3 ? value : ResolveToken(args[1], value, container);
@@ -373,8 +351,8 @@ namespace SoftMills.ComplexValidation {
 						return first > second;
 					}
 
-				// 'gte', other - is the inspected value greater than or equal to other?
-				// 'gte', first, second - is first greater than or equal to second?
+				// 'gte', other - is the inspected value greater than or equal to other? 'gte', first, second - is first greater
+				// than or equal to second?
 				case "gte": {
 						dynamic first = args.Count < 3 ? value : ResolveToken(args[1], value, container);
 						if (first == null)
@@ -436,8 +414,8 @@ namespace SoftMills.ComplexValidation {
 			return false;
 		}
 
-		// Registration of Default Error Messages
-		// Call ValidIfAttribute.RegisterAdapter<DescendantAttribute>() after setting the defaults below.
+		// Registration of Default Error Messages Call ValidIfAttribute.RegisterAdapter<DescendantAttribute>() after setting the
+		// defaults below.
 
 		public static Type DefaultErrorMessageResourceType = null;
 		public static string DefaultErrorMessageResourceNamePrefix = null;
@@ -462,5 +440,60 @@ namespace SoftMills.ComplexValidation {
 					(typeName.EndsWith("Attribute") ? typeName.Substring(0, typeName.Length - 9) : typeName);
 			}
 		}
+	}
+
+	public class ValidIf2Attribute : ValidIfAttribute {
+		public ValidIf2Attribute(string rule, params string[] errorMessageFormatNames) : base(rule, errorMessageFormatNames) { }
+	}
+
+	public class ValidIf3Attribute : ValidIfAttribute {
+		public ValidIf3Attribute(string rule, params string[] errorMessageFormatNames) : base(rule, errorMessageFormatNames) { }
+	}
+
+	public class ValidIf4Attribute : ValidIfAttribute {
+		public ValidIf4Attribute(string rule, params string[] errorMessageFormatNames) : base(rule, errorMessageFormatNames) { }
+	}
+
+	public class ValidIf5Attribute : ValidIfAttribute {
+		public ValidIf5Attribute(string rule, params string[] errorMessageFormatNames) : base(rule, errorMessageFormatNames) { }
+	}
+
+	// Convenience attributes. Because it's generally a bit more readable to say [LessThan("Today")].
+	public class RequiredIfAttribute : ValidIfAttribute {
+		public RequiredIfAttribute(string other) : base("['if','" + HttpUtility.JavaScriptStringEncode(other) + "','',true]", other) { }
+	}
+
+	public class RequiredIfAbsentAttribute : ValidIfAttribute {
+		public RequiredIfAbsentAttribute(string other) : base("['or','','" + HttpUtility.JavaScriptStringEncode(other) + "']", other) { }
+	}
+
+	public class EqualToAttribute : ValidIfAttribute {
+		public EqualToAttribute(string other) : base("['eq','" + HttpUtility.JavaScriptStringEncode(other) + "']", other) { }
+		public EqualToAttribute(int constant) : base("['eq'," + constant + "]", null) { ErrorMessageDisplayNames[0] = constant.ToString(); }
+		public EqualToAttribute(double constant) : base("['eq'," + constant + "]", null) { ErrorMessageDisplayNames[0] = constant.ToString(); }
+	}
+
+	public class LessThanAttribute : ValidIfAttribute {
+		public LessThanAttribute(string other) : base("['lt','" + HttpUtility.JavaScriptStringEncode(other) + "']", other) { }
+		public LessThanAttribute(int constant) : base("['lt'," + constant + "]", null) { ErrorMessageDisplayNames[0] = constant.ToString(); }
+		public LessThanAttribute(double constant) : base("['lt'," + constant + "]", null) { ErrorMessageDisplayNames[0] = constant.ToString(); }
+	}
+
+	public class LessThanOrEqualToAttribute : ValidIfAttribute {
+		public LessThanOrEqualToAttribute(string other) : base("['lte','" + HttpUtility.JavaScriptStringEncode(other) + "']", other) { }
+		public LessThanOrEqualToAttribute(int constant) : base("['lte'," + constant + "]", null) { ErrorMessageDisplayNames[0] = constant.ToString(); }
+		public LessThanOrEqualToAttribute(double constant) : base("['lte'," + constant + "]", null) { ErrorMessageDisplayNames[0] = constant.ToString(); }
+	}
+
+	public class GreaterThanAttribute : ValidIfAttribute {
+		public GreaterThanAttribute(string other) : base("['gt','" + HttpUtility.JavaScriptStringEncode(other) + "']", other) { }
+		public GreaterThanAttribute(int constant) : base("['gt'," + constant + "]", null) { ErrorMessageDisplayNames[0] = constant.ToString(); }
+		public GreaterThanAttribute(double constant) : base("['gt'," + constant + "]", null) { ErrorMessageDisplayNames[0] = constant.ToString(); }
+	}
+
+	public class GreaterThanOrEqualToAttribute : ValidIfAttribute {
+		public GreaterThanOrEqualToAttribute(string other) : base("['gte','" + HttpUtility.JavaScriptStringEncode(other) + "']", other) { }
+		public GreaterThanOrEqualToAttribute(int constant) : base("['gte'," + constant + "]", null) { ErrorMessageDisplayNames[0] = constant.ToString(); }
+		public GreaterThanOrEqualToAttribute(double constant) : base("['gte'," + constant + "]", null) { ErrorMessageDisplayNames[0] = constant.ToString(); }
 	}
 }

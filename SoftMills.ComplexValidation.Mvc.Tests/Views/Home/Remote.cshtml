@@ -1,0 +1,39 @@
+﻿@model SoftMills.ComplexValidation.Mvc.Tests.Models.HomeRemoteModel
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Page for AnthonyMills.ComplexValidation - Remote Validations</title>
+</head>
+<body>
+    <form method="POST">
+        <h1>Thank you for ordering from Joe's Crazy Pizzas!</h1>
+
+        <div>@Html.LabelFor(m => m.ToppingCount)</div>
+        <div>@Html.DropDownListFor(m => m.ToppingCount, Model.ToppingCountSelectList)</div>
+        <div>@Html.ValidationMessageFor(m => m.ToppingCount)</div>
+        @Html.HiddenFor(m => m.ToppingCountUrl)
+
+        <br />
+
+        <div>@Html.LabelFor(m => m.Toppings)</div>
+        <div>@Html.ListBoxFor(m => m.Toppings, Model.ToppingsMultiSelectList)</div>
+        <div>@Html.ValidationMessageFor(m => m.Toppings)</div>
+        @Html.HiddenFor(m => m.ToppingsUrl)
+
+        <br />
+
+        <div>@Html.LabelFor(m => m.DeliveryDate)</div>
+        <div>@Html.TextBoxFor(m => m.DeliveryDate)</div>
+        <div>@Html.ValidationMessageFor(m => m.DeliveryDate)</div>
+        @Html.HiddenFor(m => m.DeliveryDateUrl)
+        @Html.HiddenFor(m => m.Today)
+
+        <button type="submit">Submit</button>
+        @Html.AntiForgeryToken()
+    </form>
+    <script type="text/javascript" src="//ajax.googleapis.com/ajax/libs/jquery/2.0.3/jquery.min.js"></script>
+    <script type="text/javascript" src="~/scripts/jquery.validate.js"></script>
+    <script type="text/javascript" src="~/scripts/jquery.validate.unobtrusive.js"></script>
+    <script type="text/javascript" src="~/scripts/jquery.validate.complex.js"></script>
+</body>
+</html>
